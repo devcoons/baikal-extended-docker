@@ -1,0 +1,42 @@
+# Boot-persistent supervisor for the Baïkal compose stack.
+#
+# Docker users normally do NOT need this: the Docker daemon re-launches any
+# container with `restart: always` on boot. Use this unit when you run the
+# stack under daemonless Podman, where nothing starts containers at boot
+# unless systemd does it.
+#
+# Install (rootful):
+#   sudo cp systemd/baikal.service /etc/systemd/system/baikal.service
+#   sudo sed -i "s|/REPO/PATH|$(pwd)|" /etc/systemd/system/baikal.service
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now baikal.service
+#
+# Rootless Podman (run as your user):
+#   loginctl enable-linger "$USER"          # keep services running after logout / across reboots
+#   mkdir -p ~/.config/systemd/user
+#   cp systemd/baikal.service ~/.config/systemd/user/baikal.service
+#   sed -i "s|/REPO/PATH|$(pwd)|" ~/.config/systemd/user/baikal.service
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now baikal.service
+
+[Unit]
+Description=Baikal CalDAV/CardDAV stack (compose)
+Wants=network-online.target
+After=network-online.target
+# For Docker, uncomment:
+# Requires=docker.service
+# After=docker.service
+
+[Service]
+Type=simple
+WorkingDirectory=/REPO/PATH
+# Use whichever is installed: docker compose, docker-compose, or podman-compose.
+ExecStartPre=-/usr/bin/podman-compose down
+ExecStart=/usr/bin/podman-compose up
+ExecStop=/usr/bin/podman-compose down
+Restart=always
+RestartSec=10
+TimeoutStartSec=0
+
+[Install]
+WantedBy=default.target

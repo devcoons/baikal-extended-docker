@@ -1,0 +1,23 @@
+diff --git a/Core/Frameworks/Baikal/Core/Server.php b/Core/Frameworks/Baikal/Core/Server.php
+index 13016a4..48b23cc 100644
+--- a/Core/Frameworks/Baikal/Core/Server.php
++++ b/Core/Frameworks/Baikal/Core/Server.php
+@@ -181,6 +181,18 @@ class Server {
+             $this->server->addPlugin(new \Sabre\CardDAV\VCFExportPlugin());
+         }
+ 
++        // baikal-ext: register the optional change-notification hook. This is a
++        // no-op when the extension is not present, so upstream Baikal keeps
++        // working unmodified. It enables event-driven birthday synchronisation.
++        $baikalExtHome = getenv('BAIKAL_EXT_HOME') ?: '/opt/baikal-ext';
++        $baikalExtBootstrap = $baikalExtHome . '/bootstrap.php';
++        if (is_readable($baikalExtBootstrap)) {
++            require_once $baikalExtBootstrap;
++            if (class_exists('\\BaikalExt\\Dav\\ChangeTriggerPlugin')) {
++                $this->server->addPlugin(new \BaikalExt\Dav\ChangeTriggerPlugin());
++            }
++        }
++
+         $this->server->on('exception', [$this, 'exception']);
+     }
+ 

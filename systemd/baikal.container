@@ -1,0 +1,45 @@
+# Podman Quadlet unit — the recommended high-availability setup for Podman.
+#
+# This gives, natively and without any sidecar:
+#   - crash recovery        (Restart=always, supervised by systemd)
+#   - hung-process recovery (HealthOnFailure=restart when the probe fails)
+#   - boot persistence      (systemd starts it on boot)
+#
+# Build the image first:  podman build -t baikal:local .
+#
+# Install (rootless):
+#   loginctl enable-linger "$USER"
+#   mkdir -p ~/.config/containers/systemd
+#   cp systemd/baikal.container ~/.config/containers/systemd/baikal.container
+#   systemctl --user daemon-reload
+#   systemctl --user start baikal
+#
+# Install (rootful):
+#   sudo cp systemd/baikal.container /etc/containers/systemd/baikal.container
+#   sudo systemctl daemon-reload
+#   sudo systemctl start baikal
+
+[Unit]
+Description=Baikal CalDAV/CardDAV server
+After=network-online.target
+Wants=network-online.target
+
+[Container]
+ContainerName=baikal
+Image=localhost/baikal:local
+PublishPort=${BAIKAL_HTTP_PORT:-8080}:80
+Volume=baikal-config:/var/www/baikal/config
+Volume=baikal-specific:/var/www/baikal/Specific
+HealthCmd=curl -fsS -o /dev/null http://127.0.0.1/ || exit 1
+HealthInterval=30s
+HealthTimeout=10s
+HealthRetries=3
+HealthStartPeriod=40s
+HealthOnFailure=restart
+
+[Service]
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=default.target

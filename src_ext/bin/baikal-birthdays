@@ -1,0 +1,33 @@
+#!/bin/sh
+# Wrapper for the birthday-sync CLI.
+#
+# Runs the PHP entrypoint as the web-server user (www-data) so any database
+# files it creates/touches (e.g. SQLite WAL/journal) keep ownership consistent
+# with the Apache/PHP process. Falls back to running directly when already
+# unprivileged or when no privilege-drop tool is available.
+set -eu
+
+SCRIPT="${BAIKAL_EXT_HOME:-/opt/baikal-ext}/bin/birthdays.php"
+RUN_AS="${BAIKAL_EXT_USER:-www-data}"
+
+if [ ! -f "$SCRIPT" ]; then
+    echo "baikal-birthdays: cannot find $SCRIPT" >&2
+    exit 1
+fi
+
+if [ "$(id -u)" = "0" ] && [ "$RUN_AS" != "root" ]; then
+    if command -v runuser >/dev/null 2>&1; then
+        exec runuser -u "$RUN_AS" -- php "$SCRIPT" "$@"
+    elif command -v setpriv >/dev/null 2>&1; then
+        exec setpriv --reuid="$RUN_AS" --regid="$RUN_AS" --init-groups php "$SCRIPT" "$@"
+    elif command -v su >/dev/null 2>&1; then
+        # Last resort; quote each argument for the shell su spawns.
+        quoted=""
+        for a in "$@"; do
+            quoted="$quoted '$(printf '%s' "$a" | sed "s/'/'\\\\''/g")'"
+        done
+        exec su -s /bin/sh "$RUN_AS" -c "php '$SCRIPT'$quoted"
+    fi
+fi
+
+exec php "$SCRIPT" "$@"

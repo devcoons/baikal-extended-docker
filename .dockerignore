@@ -1,0 +1,25 @@
+# Git
+.git
+.gitmodules
+**/.git
+
+# Local runtime data (bind mounts / dev)
+data/
+*.log
+
+# IDE / editor
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Baïkal dev artifacts inside submodule
+src/vendor/
+src/build/
+src/config/baikal.yaml
+src/Specific/db/db.sqlite
+src/tests/
+src/.github/
+src/phpstan.neon
+src/run_tests.py
+src/Makefile

@@ -1,0 +1,53 @@
+#!/bin/sh
+# Event-driven birthday-sync watcher.
+#
+# Blocks on inotify and reacts only when the change-trigger plugin drops a
+# per-user marker file into the queue directory (no polling). For each marker it
+# runs the birthday sync for just that user, then removes the marker.
+#
+# Each marker's filename is a hash; its content is the real username, so bursts
+# of changes for the same user coalesce into a single sync.
+set -u
+
+QUEUE="${BAIKAL_EXT_QUEUE:-${BAIKAL_PATH_SPECIFIC:-/var/www/baikal/Specific}/birthday-queue}"
+DEBOUNCE="${BAIKAL_BIRTHDAY_WATCH_DEBOUNCE:-3}"
+SYNC_BIN="/usr/local/bin/baikal-birthdays"
+
+log() {
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] birthday-watch: $*"
+}
+
+if ! command -v inotifywait >/dev/null 2>&1; then
+    log "inotifywait not found (install inotify-tools); watcher cannot start"
+    exit 1
+fi
+
+mkdir -p "$QUEUE"
+log "watching $QUEUE (debounce=${DEBOUNCE}s)"
+
+process_flags() {
+    for f in "$QUEUE"/*; do
+        [ -f "$f" ] || continue
+        user=$(cat "$f" 2>/dev/null || true)
+        rm -f "$f"
+        [ -n "$user" ] || continue
+        log "change detected for user '$user' -> syncing"
+        if ! "$SYNC_BIN" run --user="$user" -q; then
+            log "sync failed for user '$user'"
+        fi
+    done
+}
+
+# Handle anything queued while the watcher was down.
+process_flags
+
+while true; do
+    mkdir -p "$QUEUE"
+    # Block until something changes; on error back off briefly to avoid spinning.
+    if ! inotifywait -q -e create,modify,moved_to,close_write "$QUEUE" >/dev/null 2>&1; then
+        sleep 5
+    fi
+    # Coalesce bursts (e.g. a client syncing many contacts at once).
+    sleep "$DEBOUNCE"
+    process_flags
+done

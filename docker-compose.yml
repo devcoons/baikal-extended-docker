@@ -1,0 +1,95 @@
+services:
+  baikal:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: baikal:local
+    ports:
+      - "${BAIKAL_HTTP_PORT:-8080}:80"
+    environment:
+      # Optional Apache directives (silence ServerName warnings, virtual hosts)
+      BAIKAL_SERVERNAME: ${BAIKAL_SERVERNAME:-}
+      BAIKAL_SERVERALIAS: ${BAIKAL_SERVERALIAS:-}
+      # Set to any value to skip chown on config/Specific at startup
+      # BAIKAL_SKIP_CHOWN: "1"
+      # --- Birthday-sync extension (src_ext) ---
+      BAIKAL_BIRTHDAY_CALENDAR: ${BAIKAL_BIRTHDAY_CALENDAR:-Important Dates}
+      BAIKAL_BIRTHDAY_ALARM_TIME: ${BAIKAL_BIRTHDAY_ALARM_TIME:-08:00}
+      BAIKAL_BIRTHDAY_ADDRESSBOOK: ${BAIKAL_BIRTHDAY_ADDRESSBOOK:-}
+      BAIKAL_BIRTHDAY_CREATE_CALENDAR: ${BAIKAL_BIRTHDAY_CREATE_CALENDAR:-false}
+      BAIKAL_BIRTHDAY_RUN_ON_START: ${BAIKAL_BIRTHDAY_RUN_ON_START:-false}
+      # Event-driven sync: the in-server plugin notifies a watcher on contact
+      # changes (no polling). Recommended; keep the cron below as a daily backstop.
+      BAIKAL_BIRTHDAY_WATCH: ${BAIKAL_BIRTHDAY_WATCH:-true}
+      BAIKAL_BIRTHDAY_WATCH_DEBOUNCE: ${BAIKAL_BIRTHDAY_WATCH_DEBOUNCE:-3}
+      # Periodic safety net (covers the yearly date rollover / any missed events).
+      BAIKAL_BIRTHDAY_ENABLED: ${BAIKAL_BIRTHDAY_ENABLED:-true}
+      BAIKAL_BIRTHDAY_CRON: ${BAIKAL_BIRTHDAY_CRON:-30 0 * * *}
+    volumes:
+      - baikal-config:/var/www/baikal/config
+      - baikal-specific:/var/www/baikal/Specific
+    # Always bring the service back: on crash, on unhealthy-triggered kill,
+    # and after a host/daemon reboot.
+    restart: always
+    stop_grace_period: 30s
+    # Opt in to autoheal: this container is restarted when it reports "unhealthy".
+    labels:
+      - "autoheal=true"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://127.0.0.1/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    # Swarm-mode restart policy (ignored by plain `docker compose up`).
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: any
+        delay: 5s
+        max_attempts: 0
+        window: 120s
+      update_config:
+        order: start-first
+
+  # Watches all containers labelled autoheal=true and restarts any that go
+  # unhealthy. The runtime's own restart policy only reacts to process exit,
+  # not to a process that is alive but stuck, so this closes that gap.
+  autoheal:
+    image: docker.io/willfarrell/autoheal:latest
+    restart: always
+    environment:
+      AUTOHEAL_CONTAINER_LABEL: autoheal
+      AUTOHEAL_INTERVAL: 10
+      AUTOHEAL_START_PERIOD: 30
+      AUTOHEAL_DEFAULT_STOP_TIMEOUT: 30
+    volumes:
+      # Docker: default socket path. Podman: see README for the rootless path.
+      - "${DOCKER_SOCK:-/var/run/docker.sock}:/var/run/docker.sock"
+    # Allow socket access under SELinux (Fedora/RHEL). Harmless on other hosts.
+    security_opt:
+      - label=disable
+
+  mysql:
+    profiles:
+      - mysql
+    image: mysql:8
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-baikal-root}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-baikal}
+      MYSQL_USER: ${MYSQL_USER:-baikal}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-baikal}
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-p${MYSQL_ROOT_PASSWORD:-baikal-root}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    restart: always
+
+volumes:
+  baikal-config:
+  baikal-specific:
+  mysql-data:
