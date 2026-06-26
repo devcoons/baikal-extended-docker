@@ -2,22 +2,22 @@
 # Configure and start the periodic birthday-sync job.
 #
 # Behaviour is controlled via environment variables:
-#   BAIKAL_BIRTHDAY_ENABLED   "true" to enable the cron job (default: true)
-#   BAIKAL_BIRTHDAY_CRON      cron schedule (default: "30 0 * * *" = daily 00:30)
-#   BAIKAL_BIRTHDAY_RUN_ON_START  "true" to also run once shortly after boot
+#   BAIKAL_EXT_BIRTHDAY_ENABLED   "true" to enable the cron job (default: true)
+#   BAIKAL_EXT_BIRTHDAY_CRON      cron schedule (default: "30 0 * * *" = daily 00:30)
+#   BAIKAL_EXT_BIRTHDAY_RUN_ON_START  "true" to also run once shortly after boot
 #
 # The job itself reads its options (calendar name, alarm time, ...) from the
-# BAIKAL_BIRTHDAY_* variables, which are propagated into the cron environment.
+# BAIKAL_EXT_BIRTHDAY_* variables, which are propagated into the cron environment.
 set -e
 ME=$(basename "$0")
 
-ENABLED="${BAIKAL_BIRTHDAY_ENABLED:-true}"
+ENABLED="${BAIKAL_EXT_BIRTHDAY_ENABLED:-true}"
 CRON_FILE="/etc/cron.d/baikal-birthdays"
 
 case "$ENABLED" in
     1|true|TRUE|yes|on) : ;;
     *)
-        echo "$ME: birthday sync disabled (BAIKAL_BIRTHDAY_ENABLED=$ENABLED)"
+        echo "$ME: birthday sync disabled (BAIKAL_EXT_BIRTHDAY_ENABLED=$ENABLED)"
         rm -f "$CRON_FILE"
         exit 0
         ;;
@@ -28,7 +28,7 @@ if ! command -v cron >/dev/null 2>&1; then
     exit 0
 fi
 
-SCHEDULE="${BAIKAL_BIRTHDAY_CRON:-30 0 * * *}"
+SCHEDULE="${BAIKAL_EXT_BIRTHDAY_CRON:-30 0 * * *}"
 
 # Propagate the runtime configuration into cron's (otherwise empty) environment.
 {
@@ -36,11 +36,11 @@ SCHEDULE="${BAIKAL_BIRTHDAY_CRON:-30 0 * * *}"
     echo "SHELL=/bin/sh"
     echo "PATH=/usr/local/bin:/usr/local/sbin:/usr/sbin:/usr/bin:/sbin:/bin"
     for var in BAIKAL_HOME BAIKAL_EXT_HOME BAIKAL_PATH_CONFIG BAIKAL_PATH_SPECIFIC \
-               BAIKAL_BIRTHDAY_CALENDAR BAIKAL_BIRTHDAY_ADDRESSBOOK \
-               BAIKAL_BIRTHDAY_ALARM_TIME BAIKAL_BIRTHDAY_CREATE_CALENDAR \
-               BAIKAL_BIRTHDAY_TITLE_TEMPLATE BAIKAL_BIRTHDAY_SHOW_AGE \
-               BAIKAL_ANNIVERSARY_ENABLED BAIKAL_ANNIVERSARY_TITLE_TEMPLATE \
-               BAIKAL_ANNIVERSARY_SHOW_YEARS; do
+               BAIKAL_EXT_BIRTHDAY_CALENDAR BAIKAL_EXT_BIRTHDAY_ADDRESSBOOK \
+               BAIKAL_EXT_BIRTHDAY_ALARM_TIME BAIKAL_EXT_BIRTHDAY_CREATE_CALENDAR \
+               BAIKAL_EXT_BIRTHDAY_TITLE_TEMPLATE BAIKAL_EXT_BIRTHDAY_SHOW_AGE \
+               BAIKAL_EXT_ANNIVERSARY_ENABLED BAIKAL_EXT_ANNIVERSARY_TITLE_TEMPLATE \
+               BAIKAL_EXT_ANNIVERSARY_SHOW_YEARS; do
         eval "value=\${$var:-}"
         if [ -n "$value" ]; then
             echo "$var=$value"
@@ -59,9 +59,5 @@ if ! pgrep -x cron >/dev/null 2>&1; then
     echo "$ME: started cron daemon"
 fi
 
-case "${BAIKAL_BIRTHDAY_RUN_ON_START:-false}" in
-    1|true|TRUE|yes|on)
-        echo "$ME: running an initial birthday sync in the background"
-        ( sleep 10; /usr/local/bin/baikal-birthdays run >> /proc/1/fd/1 2>> /proc/1/fd/2 || true ) &
-        ;;
-esac
+# The initial (first-run) sync is handled by 58-run-baikal-sync-on-start.sh,
+# which waits for the database to be ready before running.

@@ -13,33 +13,36 @@ services:
       # Set to any value to skip chown on config/Specific at startup
       # BAIKAL_SKIP_CHOWN: "1"
       # --- Occasion-sync extension (src_ext): birthdays + anniversaries ---
-      BAIKAL_BIRTHDAY_CALENDAR: ${BAIKAL_BIRTHDAY_CALENDAR:-Important Dates}
-      BAIKAL_BIRTHDAY_ALARM_TIME: ${BAIKAL_BIRTHDAY_ALARM_TIME:-08:00}
-      BAIKAL_BIRTHDAY_ADDRESSBOOK: ${BAIKAL_BIRTHDAY_ADDRESSBOOK:-}
-      BAIKAL_BIRTHDAY_CREATE_CALENDAR: ${BAIKAL_BIRTHDAY_CREATE_CALENDAR:-false}
-      BAIKAL_BIRTHDAY_RUN_ON_START: ${BAIKAL_BIRTHDAY_RUN_ON_START:-false}
+      BAIKAL_EXT_BIRTHDAY_CALENDAR: ${BAIKAL_EXT_BIRTHDAY_CALENDAR:-Important Dates}
+      BAIKAL_EXT_BIRTHDAY_ALARM_TIME: ${BAIKAL_EXT_BIRTHDAY_ALARM_TIME:-08:00}
+      BAIKAL_EXT_BIRTHDAY_ADDRESSBOOK: ${BAIKAL_EXT_BIRTHDAY_ADDRESSBOOK:-}
+      BAIKAL_EXT_BIRTHDAY_CREATE_CALENDAR: ${BAIKAL_EXT_BIRTHDAY_CREATE_CALENDAR:-false}
+      # Run one full sync on startup, once the DB is ready (also migrates events
+      # from older versions). START_TIMEOUT bounds the wait for the DB.
+      BAIKAL_EXT_BIRTHDAY_RUN_ON_START: ${BAIKAL_EXT_BIRTHDAY_RUN_ON_START:-true}
+      BAIKAL_EXT_BIRTHDAY_START_TIMEOUT: ${BAIKAL_EXT_BIRTHDAY_START_TIMEOUT:-300}
       # Show the age/years in the title when the source year is known.
-      BAIKAL_BIRTHDAY_SHOW_AGE: ${BAIKAL_BIRTHDAY_SHOW_AGE:-true}
+      BAIKAL_EXT_BIRTHDAY_SHOW_AGE: ${BAIKAL_EXT_BIRTHDAY_SHOW_AGE:-true}
       # Anniversaries (from vCard ANNIVERSARY / X-ANNIVERSARY).
-      BAIKAL_ANNIVERSARY_ENABLED: ${BAIKAL_ANNIVERSARY_ENABLED:-true}
-      BAIKAL_ANNIVERSARY_SHOW_YEARS: ${BAIKAL_ANNIVERSARY_SHOW_YEARS:-true}
+      BAIKAL_EXT_ANNIVERSARY_ENABLED: ${BAIKAL_EXT_ANNIVERSARY_ENABLED:-true}
+      BAIKAL_EXT_ANNIVERSARY_SHOW_YEARS: ${BAIKAL_EXT_ANNIVERSARY_SHOW_YEARS:-true}
       # Title templates (image defaults: "{name}'s Birthday" / "{name}'s Anniversary").
       # Uncomment to customise. Tokens: {name} and {age}/{years}.
-      # BAIKAL_BIRTHDAY_TITLE_TEMPLATE: "{name} turns {age}"
-      # BAIKAL_ANNIVERSARY_TITLE_TEMPLATE: "{name}'s Anniversary"
+      # BAIKAL_EXT_BIRTHDAY_TITLE_TEMPLATE: "{name} turns {age}"
+      # BAIKAL_EXT_ANNIVERSARY_TITLE_TEMPLATE: "{name}'s Anniversary"
       # Event-driven sync: the in-server plugin notifies a watcher on contact
       # changes (no polling). Recommended; keep the cron below as a daily backstop.
-      BAIKAL_BIRTHDAY_WATCH: ${BAIKAL_BIRTHDAY_WATCH:-true}
-      BAIKAL_BIRTHDAY_WATCH_DEBOUNCE: ${BAIKAL_BIRTHDAY_WATCH_DEBOUNCE:-3}
+      BAIKAL_EXT_BIRTHDAY_WATCH: ${BAIKAL_EXT_BIRTHDAY_WATCH:-true}
+      BAIKAL_EXT_BIRTHDAY_WATCH_DEBOUNCE: ${BAIKAL_EXT_BIRTHDAY_WATCH_DEBOUNCE:-3}
       # Periodic safety net (covers the yearly date rollover / any missed events).
-      BAIKAL_BIRTHDAY_ENABLED: ${BAIKAL_BIRTHDAY_ENABLED:-true}
-      BAIKAL_BIRTHDAY_CRON: ${BAIKAL_BIRTHDAY_CRON:-30 0 * * *}
+      BAIKAL_EXT_BIRTHDAY_ENABLED: ${BAIKAL_EXT_BIRTHDAY_ENABLED:-true}
+      BAIKAL_EXT_BIRTHDAY_CRON: ${BAIKAL_EXT_BIRTHDAY_CRON:-30 0 * * *}
       # --- Automated backups (DB snapshot + config, rotated) ---
-      BAIKAL_BACKUP_ENABLED: ${BAIKAL_BACKUP_ENABLED:-true}
-      BAIKAL_BACKUP_CRON: ${BAIKAL_BACKUP_CRON:-0 3 * * *}
-      BAIKAL_BACKUP_KEEP: ${BAIKAL_BACKUP_KEEP:-7}
-      BAIKAL_BACKUP_RUN_ON_START: ${BAIKAL_BACKUP_RUN_ON_START:-false}
-      # BAIKAL_BACKUP_DIR defaults to <Specific>/backups (inside the volume).
+      BAIKAL_EXT_BACKUP_ENABLED: ${BAIKAL_EXT_BACKUP_ENABLED:-true}
+      BAIKAL_EXT_BACKUP_CRON: ${BAIKAL_EXT_BACKUP_CRON:-0 3 * * *}
+      BAIKAL_EXT_BACKUP_KEEP: ${BAIKAL_EXT_BACKUP_KEEP:-7}
+      BAIKAL_EXT_BACKUP_RUN_ON_START: ${BAIKAL_EXT_BACKUP_RUN_ON_START:-false}
+      # BAIKAL_EXT_BACKUP_DIR defaults to <Specific>/backups (inside the volume).
     volumes:
       - baikal-config:/var/www/baikal/config
       - baikal-specific:/var/www/baikal/Specific

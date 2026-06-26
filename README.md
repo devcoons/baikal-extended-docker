@@ -156,8 +156,8 @@ and/or `ANNIVERSARY`, maintains an entry in that calendar:
   daily run rolls this forward automatically as dates pass.
 
 Titles are configurable via templates (`{name}` plus `{age}`/`{years}`), e.g. set
-`BAIKAL_BIRTHDAY_TITLE_TEMPLATE="{name} turns {age}"` for `"Bob turns 41"`.
-Anniversaries can be turned off with `BAIKAL_ANNIVERSARY_ENABLED=false`.
+`BAIKAL_EXT_BIRTHDAY_TITLE_TEMPLATE="{name} turns {age}"` for `"Bob turns 41"`.
+Anniversaries can be turned off with `BAIKAL_EXT_ANNIVERSARY_ENABLED=false`.
 
 It is strictly per user (a user's contacts only ever write to that same user's
 calendar) and only ever touches events it created itself — your own calendar
@@ -165,6 +165,12 @@ entries are never modified. Birthdays and anniversaries are tracked independentl
 
 ### How it's triggered
 
+- **On startup:** once the database is ready (works for SQLite and MySQL/
+  PostgreSQL), the container runs one full sync. This seeds events on first boot
+  and **migrates events created by older versions** to the current format. It
+  waits in the background, so Apache is never delayed. Controlled by
+  `BAIKAL_EXT_BIRTHDAY_RUN_ON_START` (default `true`) and bounded by
+  `BAIKAL_EXT_BIRTHDAY_START_TIMEOUT` (default 300s).
 - **Event-driven (no polling):** a small plugin inside Baïkal's DAV server reacts
   to contact create/update/delete and triggers a sync for just that user within
   seconds.
@@ -192,7 +198,7 @@ docker compose exec baikal baikal-birthdays --help
 | Nothing relevant changed | Left **unchanged** |
 
 By default a user **without** an `Important Dates` calendar is skipped. Set
-`BAIKAL_BIRTHDAY_CREATE_CALENDAR=true` to have it created automatically.
+`BAIKAL_EXT_BIRTHDAY_CREATE_CALENDAR=true` to have it created automatically.
 
 ### What gets created (example)
 
@@ -216,7 +222,7 @@ the series to start 2028 — always exactly one event per year, never duplicated
 - **Date already passed this year**: the "next" event jumps to next year's date
   and age.
 - **No name** (a contact with a date but no `FN`/`N`): skipped.
-- **Age display off** (`BAIKAL_BIRTHDAY_SHOW_AGE=false`): a single name-only
+- **Age display off** (`BAIKAL_EXT_BIRTHDAY_SHOW_AGE=false`): a single name-only
   yearly event, no split.
 - **Only the extension's own events are touched** — matched by URI/UID prefix and
   an `X-BAIKAL-EXT-SIG` signature; your own calendar entries are never modified.
@@ -249,8 +255,8 @@ docker compose exec baikal baikal-backup
 To restore: extract an archive, put `config/baikal.yaml` back, and restore the
 database (`db.sqlite` to the SQLite path, or `dump.sql` via `mysql`/`psql`).
 
-Tunables: `BAIKAL_BACKUP_ENABLED`, `BAIKAL_BACKUP_CRON`, `BAIKAL_BACKUP_DIR`,
-`BAIKAL_BACKUP_KEEP`, `BAIKAL_BACKUP_RUN_ON_START` (see the
+Tunables: `BAIKAL_EXT_BACKUP_ENABLED`, `BAIKAL_EXT_BACKUP_CRON`, `BAIKAL_EXT_BACKUP_DIR`,
+`BAIKAL_EXT_BACKUP_KEEP`, `BAIKAL_EXT_BACKUP_RUN_ON_START` (see the
 [configuration reference](#configuration-reference)).
 
 > The in-server hook is added to Baïkal via a patch applied at build time
@@ -465,30 +471,31 @@ rootful and Docker variants.
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
-| `BAIKAL_BIRTHDAY_WATCH` | `true` | Event-driven watcher (reacts to contact changes) |
-| `BAIKAL_BIRTHDAY_WATCH_DEBOUNCE` | `3` | Seconds to coalesce a burst of changes |
-| `BAIKAL_BIRTHDAY_ENABLED` | `true` | Periodic cron backstop |
-| `BAIKAL_BIRTHDAY_CRON` | `30 0 * * *` | Cron schedule |
-| `BAIKAL_BIRTHDAY_CALENDAR` | `Important Dates` | Destination calendar name |
-| `BAIKAL_BIRTHDAY_ALARM_TIME` | `08:00` | Reminder time (`HH:MM`, local) |
-| `BAIKAL_BIRTHDAY_ADDRESSBOOK` | _(all)_ | Restrict the scan to one address book |
-| `BAIKAL_BIRTHDAY_CREATE_CALENDAR` | `false` | Auto-create the calendar if missing |
-| `BAIKAL_BIRTHDAY_RUN_ON_START` | `false` | Also run once shortly after start |
-| `BAIKAL_BIRTHDAY_TITLE_TEMPLATE` | `{name}'s Birthday` | Birthday title (`{name}`, `{age}`) |
-| `BAIKAL_BIRTHDAY_SHOW_AGE` | `true` | Append `(age)` when the birth year is known |
-| `BAIKAL_ANNIVERSARY_ENABLED` | `true` | Also sync `ANNIVERSARY` / `X-ANNIVERSARY` |
-| `BAIKAL_ANNIVERSARY_TITLE_TEMPLATE` | `{name}'s Anniversary` | Anniversary title (`{name}`, `{years}`) |
-| `BAIKAL_ANNIVERSARY_SHOW_YEARS` | `true` | Append `(years)` when the year is known |
+| `BAIKAL_EXT_BIRTHDAY_WATCH` | `true` | Event-driven watcher (reacts to contact changes) |
+| `BAIKAL_EXT_BIRTHDAY_WATCH_DEBOUNCE` | `3` | Seconds to coalesce a burst of changes |
+| `BAIKAL_EXT_BIRTHDAY_ENABLED` | `true` | Periodic cron backstop |
+| `BAIKAL_EXT_BIRTHDAY_CRON` | `30 0 * * *` | Cron schedule |
+| `BAIKAL_EXT_BIRTHDAY_CALENDAR` | `Important Dates` | Destination calendar name |
+| `BAIKAL_EXT_BIRTHDAY_ALARM_TIME` | `08:00` | Reminder time (`HH:MM`, local) |
+| `BAIKAL_EXT_BIRTHDAY_ADDRESSBOOK` | _(all)_ | Restrict the scan to one address book |
+| `BAIKAL_EXT_BIRTHDAY_CREATE_CALENDAR` | `false` | Auto-create the calendar if missing |
+| `BAIKAL_EXT_BIRTHDAY_RUN_ON_START` | `true` | Run one full sync on startup once the DB is ready (also migrates old events) |
+| `BAIKAL_EXT_BIRTHDAY_START_TIMEOUT` | `300` | Max seconds to wait for the DB on startup |
+| `BAIKAL_EXT_BIRTHDAY_TITLE_TEMPLATE` | `{name}'s Birthday` | Birthday title (`{name}`, `{age}`) |
+| `BAIKAL_EXT_BIRTHDAY_SHOW_AGE` | `true` | Append `(age)` when the birth year is known |
+| `BAIKAL_EXT_ANNIVERSARY_ENABLED` | `true` | Also sync `ANNIVERSARY` / `X-ANNIVERSARY` |
+| `BAIKAL_EXT_ANNIVERSARY_TITLE_TEMPLATE` | `{name}'s Anniversary` | Anniversary title (`{name}`, `{years}`) |
+| `BAIKAL_EXT_ANNIVERSARY_SHOW_YEARS` | `true` | Append `(years)` when the year is known |
 
 ### Backups
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
-| `BAIKAL_BACKUP_ENABLED` | `true` | Install the backup cron job |
-| `BAIKAL_BACKUP_CRON` | `0 3 * * *` | Cron schedule for backups |
-| `BAIKAL_BACKUP_DIR` | `<Specific>/backups` | Where archives are written |
-| `BAIKAL_BACKUP_KEEP` | `7` | How many archives to retain |
-| `BAIKAL_BACKUP_RUN_ON_START` | `false` | Also back up shortly after start |
+| `BAIKAL_EXT_BACKUP_ENABLED` | `true` | Install the backup cron job |
+| `BAIKAL_EXT_BACKUP_CRON` | `0 3 * * *` | Cron schedule for backups |
+| `BAIKAL_EXT_BACKUP_DIR` | `<Specific>/backups` | Where archives are written |
+| `BAIKAL_EXT_BACKUP_KEEP` | `7` | How many archives to retain |
+| `BAIKAL_EXT_BACKUP_RUN_ON_START` | `false` | Also back up shortly after start |
 
 ---
 

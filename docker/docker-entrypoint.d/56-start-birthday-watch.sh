@@ -3,16 +3,16 @@
 #
 # The watcher reacts to contact changes published by the in-server change-trigger
 # plugin (see src_ext). Controlled by:
-#   BAIKAL_BIRTHDAY_WATCH   "true" to enable the watcher (default: true)
+#   BAIKAL_EXT_BIRTHDAY_WATCH   "true" to enable the watcher (default: true)
 #   BAIKAL_EXT_QUEUE        queue directory (default: <Specific>/birthday-queue)
 set -e
 ME=$(basename "$0")
 
-ENABLED="${BAIKAL_BIRTHDAY_WATCH:-true}"
+ENABLED="${BAIKAL_EXT_BIRTHDAY_WATCH:-true}"
 case "$ENABLED" in
     1|true|TRUE|yes|on) : ;;
     *)
-        echo "$ME: birthday watcher disabled (BAIKAL_BIRTHDAY_WATCH=$ENABLED)"
+        echo "$ME: birthday watcher disabled (BAIKAL_EXT_BIRTHDAY_WATCH=$ENABLED)"
         exit 0
         ;;
 esac

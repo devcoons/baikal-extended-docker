@@ -58,7 +58,8 @@ RUN apt-get update \
 
 COPY --from=builder --chown=www-data:www-data /build ${BAIKAL_HOME}
 
-# Birthday-sync extension (kept separate from the Baikal submodule).
+# Extension: occasion sync (birthdays + anniversaries) + backups.
+# Kept separate from the Baikal submodule so upstream can be upgraded cleanly.
 COPY src_ext ${BAIKAL_EXT_HOME}
 RUN ln -sf ${BAIKAL_EXT_HOME}/bin/baikal-birthdays /usr/local/bin/baikal-birthdays \
     && ln -sf ${BAIKAL_EXT_HOME}/bin/birthday-watch /usr/local/bin/birthday-watch \

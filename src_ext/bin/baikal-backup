@@ -6,8 +6,8 @@
 #   - a copy of the config directory (baikal.yaml, ...)
 #
 # Runs as the web-server user so archives stay owned consistently. Controlled by:
-#   BAIKAL_BACKUP_DIR    output directory (default: <Specific>/backups)
-#   BAIKAL_BACKUP_KEEP   how many archives to retain (default: 7)
+#   BAIKAL_EXT_BACKUP_DIR    output directory (default: <Specific>/backups)
+#   BAIKAL_EXT_BACKUP_KEEP   how many archives to retain (default: 7)
 set -eu
 
 RUN_AS="${BAIKAL_EXT_USER:-www-data}"
@@ -18,8 +18,8 @@ fi
 EXT_HOME="${BAIKAL_EXT_HOME:-/opt/baikal-ext}"
 SPECIFIC="${BAIKAL_PATH_SPECIFIC:-/var/www/baikal/Specific}"
 CONFIG="${BAIKAL_PATH_CONFIG:-/var/www/baikal/config}"
-BACKUP_DIR="${BAIKAL_BACKUP_DIR:-$SPECIFIC/backups}"
-KEEP="${BAIKAL_BACKUP_KEEP:-7}"
+BACKUP_DIR="${BAIKAL_EXT_BACKUP_DIR:-$SPECIFIC/backups}"
+KEEP="${BAIKAL_EXT_BACKUP_KEEP:-7}"
 
 log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] baikal-backup: $*"; }
 

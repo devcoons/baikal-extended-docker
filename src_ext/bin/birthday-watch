@@ -10,7 +10,7 @@
 set -u
 
 QUEUE="${BAIKAL_EXT_QUEUE:-${BAIKAL_PATH_SPECIFIC:-/var/www/baikal/Specific}/birthday-queue}"
-DEBOUNCE="${BAIKAL_BIRTHDAY_WATCH_DEBOUNCE:-3}"
+DEBOUNCE="${BAIKAL_EXT_BIRTHDAY_WATCH_DEBOUNCE:-3}"
 SYNC_BIN="/usr/local/bin/baikal-birthdays"
 
 log() {

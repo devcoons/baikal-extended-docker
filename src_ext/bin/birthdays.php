@@ -3,11 +3,11 @@
 declare(strict_types=1);
 
 /**
- * Baïkal birthday-sync extension — CLI entrypoint.
+ * Baïkal occasion-sync extension — CLI entrypoint.
  *
- * Scans each user's contacts for birthdays and maintains all-day reminders in
- * their "Important Dates" calendar. Designed to be run periodically (cron) or
- * manually from inside the container.
+ * Scans each user's contacts for birthdays and anniversaries and maintains
+ * all-day reminders in their "Important Dates" calendar. Designed to be run
+ * periodically (cron), on startup, or manually from inside the container.
  *
  * Usage:
  *   birthdays.php [run] [--dry-run] [--user=NAME] [-v|--verbose] [-q|--quiet]
@@ -99,7 +99,7 @@ function parseArgs(array $argv): array
 function printUsage(): void
 {
     echo <<<TXT
-Baikal birthday-sync
+Baikal occasion-sync (birthdays + anniversaries)
 
 Usage:
   baikal-birthdays [run] [options]
@@ -112,11 +112,16 @@ Options:
   -h, --help       Show this help
 
 Configuration (environment variables):
-  BAIKAL_BIRTHDAY_CALENDAR          Destination calendar name (default: "Important Dates")
-  BAIKAL_BIRTHDAY_ADDRESSBOOK       Restrict scan to one address book (default: all)
-  BAIKAL_BIRTHDAY_ALARM_TIME        Reminder time HH:MM (default: 08:00)
-  BAIKAL_BIRTHDAY_CREATE_CALENDAR   Auto-create the calendar if missing (default: false)
-  BAIKAL_PATH_CONFIG                Baikal config dir (default: /var/www/baikal/config)
+  BAIKAL_EXT_BIRTHDAY_CALENDAR          Destination calendar name (default: "Important Dates")
+  BAIKAL_EXT_BIRTHDAY_ADDRESSBOOK       Restrict scan to one address book (default: all)
+  BAIKAL_EXT_BIRTHDAY_ALARM_TIME        Reminder time HH:MM (default: 08:00)
+  BAIKAL_EXT_BIRTHDAY_CREATE_CALENDAR   Auto-create the calendar if missing (default: false)
+  BAIKAL_EXT_BIRTHDAY_TITLE_TEMPLATE    Birthday title; tokens {name} {age} (default: "{name}'s Birthday")
+  BAIKAL_EXT_BIRTHDAY_SHOW_AGE          Append age when the birth year is known (default: true)
+  BAIKAL_EXT_ANNIVERSARY_ENABLED        Also sync ANNIVERSARY / X-ANNIVERSARY (default: true)
+  BAIKAL_EXT_ANNIVERSARY_TITLE_TEMPLATE Anniversary title; tokens {name} {years} (default: "{name}'s Anniversary")
+  BAIKAL_EXT_ANNIVERSARY_SHOW_YEARS     Append years when the year is known (default: true)
+  BAIKAL_PATH_CONFIG                    Baikal config dir (default: /var/www/baikal/config)
 
 TXT;
 }

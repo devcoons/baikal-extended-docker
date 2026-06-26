@@ -150,37 +150,37 @@ final class Config
     /** Display name of the destination calendar that triggers processing. */
     public function calendarName(): string
     {
-        return self::envString('BAIKAL_BIRTHDAY_CALENDAR', 'Important Dates');
+        return self::envString('BAIKAL_EXT_BIRTHDAY_CALENDAR', 'Important Dates');
     }
 
     /** Title template for birthday events. Tokens: {name}, {age}. */
     public function birthdayTitleTemplate(): string
     {
-        return self::envString('BAIKAL_BIRTHDAY_TITLE_TEMPLATE', "{name}'s Birthday");
+        return self::envString('BAIKAL_EXT_BIRTHDAY_TITLE_TEMPLATE', "{name}'s Birthday");
     }
 
     /** Append the age (when the birth year is known) to birthday titles. */
     public function birthdayShowAge(): bool
     {
-        return self::envBool('BAIKAL_BIRTHDAY_SHOW_AGE', true);
+        return self::envBool('BAIKAL_EXT_BIRTHDAY_SHOW_AGE', true);
     }
 
     /** Whether to also sync anniversaries (vCard ANNIVERSARY / X-ANNIVERSARY). */
     public function anniversaryEnabled(): bool
     {
-        return self::envBool('BAIKAL_ANNIVERSARY_ENABLED', true);
+        return self::envBool('BAIKAL_EXT_ANNIVERSARY_ENABLED', true);
     }
 
     /** Title template for anniversary events. Tokens: {name}, {years}. */
     public function anniversaryTitleTemplate(): string
     {
-        return self::envString('BAIKAL_ANNIVERSARY_TITLE_TEMPLATE', "{name}'s Anniversary");
+        return self::envString('BAIKAL_EXT_ANNIVERSARY_TITLE_TEMPLATE', "{name}'s Anniversary");
     }
 
     /** Append the number of years (when known) to anniversary titles. */
     public function anniversaryShowYears(): bool
     {
-        return self::envBool('BAIKAL_ANNIVERSARY_SHOW_YEARS', true);
+        return self::envBool('BAIKAL_EXT_ANNIVERSARY_SHOW_YEARS', true);
     }
 
     /**
@@ -189,13 +189,13 @@ final class Config
      */
     public function addressBookFilter(): string
     {
-        return self::envString('BAIKAL_BIRTHDAY_ADDRESSBOOK', '');
+        return self::envString('BAIKAL_EXT_BIRTHDAY_ADDRESSBOOK', '');
     }
 
     /** Local time the reminder should fire, as "HH:MM" (24h). */
     public function alarmTime(): string
     {
-        $value = self::envString('BAIKAL_BIRTHDAY_ALARM_TIME', '08:00');
+        $value = self::envString('BAIKAL_EXT_BIRTHDAY_ALARM_TIME', '08:00');
 
         return preg_match('/^\d{1,2}:\d{2}$/', $value) === 1 ? $value : '08:00';
     }
@@ -203,7 +203,7 @@ final class Config
     /** Create the destination calendar automatically if it is missing. */
     public function createCalendarIfMissing(): bool
     {
-        return self::envBool('BAIKAL_BIRTHDAY_CREATE_CALENDAR', false);
+        return self::envBool('BAIKAL_EXT_BIRTHDAY_CREATE_CALENDAR', false);
     }
 
     public function timezone(): string
