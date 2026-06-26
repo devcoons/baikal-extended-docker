@@ -14,18 +14,24 @@ with a `BDAY` and/or `ANNIVERSARY`, maintains entries in that calendar:
 - All-day events, with a reminder (`VALARM`) that fires at **08:00** local time.
 - Title: `"<contact name>'s Birthday"` / `"<contact name>'s Anniversary"`.
 
-When the source **year is known**, the contact gets **two objects** so the age
-only appears on the next celebration:
+When the source **year is known**, the contact gets up to **three objects** so
+the age appears on the most recent and the next celebration only:
 
-1. **Next occurrence** — a single (non-recurring) event on the upcoming date,
+1. **Last occurrence** — a single (non-recurring) event on the most recent past
+   date (within the last year), with the age/years reached then. This keeps a
+   birthday/anniversary that *just passed* on the calendar instead of removing it
+   the next day. (Omitted when there is no past occurrence yet, e.g. born this
+   year.)
+2. **Next occurrence** — a single (non-recurring) event on the upcoming date,
    with the age/years in the title, e.g. `"Bob's Birthday (41)"`.
-2. **Series** — a yearly recurring event covering every later year, titled with
+3. **Series** — a yearly recurring event covering every later year, titled with
    the name only (`"Bob's Birthday"`).
 
-So the upcoming birthday shows the age, while +1/+2/+3 years out show just the
-name. Each daily run rolls this forward: once the date passes, the "next" event
-advances to the following year (new age) and the series shifts to start the year
-after. When the year is **unknown**, a single name-only recurring event is used.
+So the most recent and upcoming birthdays show the age, while +1/+2/+3 years out
+show just the name. Each daily run rolls this forward: once the date passes,
+"last" and "next" advance by a year (new ages) and the series shifts to start the
+year after. When the year is **unknown**, a single name-only recurring event is
+used (which already covers past years).
 
 It runs per user: a user's contacts only ever produce events in that same user's
 calendar. Birthdays and anniversaries are tracked independently (separate
@@ -45,9 +51,9 @@ known, `(N)` is appended automatically. Examples:
 | `{name} turns {age}` | yes | `Bob turns 41` |
 | `{name}'s Anniversary` (default, show-years on) | yes | `Al's Anniversary (10)` |
 
-The count is computed for the **next** occurrence and only the single "next"
-event carries it; the recurring series stays name-only. The daily cron keeps both
-correct as years roll over.
+The count is computed per occurrence: the single "last" and "next" events carry
+the age/years reached then, while the recurring series stays name-only. The daily
+cron keeps them correct as years roll over.
 
 ## Design
 
@@ -70,9 +76,9 @@ works with the SQLite, MySQL and PostgreSQL backends transparently.
 ### Idempotency & safety
 
 - Managed events use stable URI/UID prefixes (`baikal-ext-bday-` for birthdays,
-  `baikal-ext-anniv-` for anniversaries; the single "next" event adds a `-next`
-  suffix) and carry an `X-BAIKAL-EXT-SIG` signature and an `X-BAIKAL-EXT-ROLE`
-  (`next` / `series`).
+  `baikal-ext-anniv-` for anniversaries; the single past/upcoming events add
+  `-last` / `-next` suffixes) and carry an `X-BAIKAL-EXT-SIG` signature and an
+  `X-BAIKAL-EXT-ROLE` (`last` / `next` / `series`).
 - Re-runs **create** new occasions, **update** changed ones, leave unchanged ones
   alone, and **delete** events whose source contact/field disappeared.
 - Events without those prefixes (i.e. anything a user created) are never touched.

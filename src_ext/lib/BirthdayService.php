@@ -224,12 +224,17 @@ final class BirthdayService
      * Builds the desired calendar object(s) for one contact + occasion.
      *
      * When the source year is known and the count should be shown, this returns
-     * two objects:
-     *   - a single (non-recurring) event for the next upcoming occurrence, with
-     *     the age/years in the title (e.g. "Bob's Birthday (41)");
-     *   - a recurring yearly series for every later year, titled with the name
-     *     only ("Bob's Birthday").
-     * Otherwise it returns a single recurring (name-only) event, as before.
+     * up to three objects so the age is shown on both the most recent and the
+     * upcoming celebration, while older years stay name-only:
+     *   - "last": the most recent past occurrence (within the last year), with
+     *     the age/years reached then (kept so a birthday that just passed is not
+     *     immediately removed);
+     *   - "next": the upcoming occurrence, with the age/years in the title
+     *     (e.g. "Bob's Birthday (41)");
+     *   - "series": a recurring yearly event for every later year, titled with
+     *     the name only ("Bob's Birthday").
+     * Otherwise it returns a single recurring (name-only) event, anchored so it
+     * still covers past years.
      *
      * @param array{key:string,props:list<string>,prefix:string,template:string,showCount:bool,foundKey:string} $occasion
      * @param array{vcard:\Sabre\VObject\Component\VCard,name:string,sourceKey:string} $contact
@@ -293,11 +298,31 @@ final class BirthdayService
             )];
         }
 
-        // Age known and wanted: split into "next" (with age) + "series" (plain).
+        // Age known and wanted: split into "last" (with age) + "next" (with age)
+        // + "series" (plain), so the most recent and upcoming celebrations carry
+        // the age while later years stay name-only.
         $nextTitle = $this->renderTitle($occasion['template'], $contact['name'], $count, true);
         $seriesStart = $this->nextOccurrenceDate($date['month'], $date['day'], $upcoming->modify('+1 day'));
 
         $events = [];
+
+        // Keep the most recent past occurrence (within the last year) so a
+        // birthday/anniversary that just passed is not immediately removed.
+        $previous = $this->previousOccurrenceDate($date['month'], $date['day'], $today);
+        if ($previous !== null) {
+            $lastCount = (int) $previous->format('Y') - $date['year'];
+            if ($lastCount >= 0) {
+                $events[] = $this->makeEvent(
+                    $occasion['prefix'] . $hash . '-last.ics',
+                    $occasion['prefix'] . $hash . '-last' . self::UID_DOMAIN,
+                    $this->renderTitle($occasion['template'], $contact['name'], $lastCount, true),
+                    $previous,
+                    false,
+                    'last',
+                    $contact['sourceKey']
+                );
+            }
+        }
 
         $events[] = $this->makeEvent(
             $occasion['prefix'] . $hash . '-next.ics',
@@ -368,6 +393,35 @@ final class BirthdayService
         }
 
         return $from;
+    }
+
+    /**
+     * Most recent calendar date strictly before $before matching month/day,
+     * skipping years where the date is invalid (e.g. Feb 29). Returns null when
+     * none can be found within a reasonable window.
+     */
+    private function previousOccurrenceDate(int $month, int $day, \DateTimeImmutable $before): ?\DateTimeImmutable
+    {
+        $startYear = (int) $before->format('Y');
+        for ($i = 0; $i <= 8; $i++) {
+            $year = $startYear - $i;
+            if ($year < 1) {
+                break;
+            }
+            if (!checkdate($month, $day, $year)) {
+                continue;
+            }
+            $candidate = \DateTimeImmutable::createFromFormat(
+                '!Ymd',
+                sprintf('%04d%02d%02d', $year, $month, $day),
+                $before->getTimezone()
+            );
+            if ($candidate < $before) {
+                return $candidate;
+            }
+        }
+
+        return null;
     }
 
     /**

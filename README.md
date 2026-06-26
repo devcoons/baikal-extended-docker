@@ -149,11 +149,13 @@ and/or `ANNIVERSARY`, maintains an entry in that calendar:
 
 - All-day events with a reminder that fires at **08:00** local time
 - Title: `"<contact name>'s Birthday"` / `"<contact name>'s Anniversary"`
-- When the source year is known, you get **two objects**: a single **next
-  occurrence** event carrying the age/years (`"Bob's Birthday (41)"`) and a
-  **yearly series** for all later years titled with the name only. So the
-  upcoming celebration shows the age while future years show just the name; the
-  daily run rolls this forward automatically as dates pass.
+- When the source year is known, you get up to **three objects**: a **last
+  occurrence** event for the most recent past celebration (within the last year)
+  with the age then, a **next occurrence** event carrying the upcoming age/years
+  (`"Bob's Birthday (41)"`), and a **yearly series** for all later years titled
+  with the name only. So a birthday that just passed stays visible with the age
+  reached, the upcoming one shows the new age, and future years show just the
+  name; the daily run rolls everything forward automatically as dates pass.
 
 Titles are configurable via templates (`{name}` plus `{age}`/`{years}`), e.g. set
 `BAIKAL_EXT_BIRTHDAY_TITLE_TEMPLATE="{name} turns {age}"` for `"Bob turns 41"`.
@@ -206,24 +208,28 @@ For a contact `Bob Stone` with `BDAY = 1985-08-20`, synced on 2026-06-26:
 
 | Object | Date | Recurs? | Title |
 |--------|------|---------|-------|
+| last occurrence | 2025-08-20 | no | `Bob Stone's Birthday (40)` |
 | next occurrence | 2026-08-20 | no | `Bob Stone's Birthday (41)` |
 | series | 2027-08-20 | yearly | `Bob Stone's Birthday` |
 
-So the next birthday shows the age; 2027, 2028, … show just the name. After
-2026-08-20 passes, the daily run advances the "next" event to 2027 (age 42) and
-the series to start 2028 — always exactly one event per year, never duplicated.
+So the most recent and next birthdays show the age; 2027, 2028, … show just the
+name. After 2026-08-20 passes, the daily run advances "last" to 2026 (age 41),
+"next" to 2027 (age 42), and the series to start 2028 — always at most one event
+per year, never duplicated. This is why a birthday that happened *last month*
+stays on the calendar instead of disappearing the next day.
 
 ### Edge cases handled
 
 - **Unknown year** (`BDAY = --08-20`): a single name-only yearly event (no age,
-  no "next" split — there is nothing to count).
-- **Leap day** (`Feb 29`): the "next" event lands on the next real Feb 29 (with
-  the correct age) and the series recurs on leap years only.
-- **Date already passed this year**: the "next" event jumps to next year's date
-  and age.
+  no split — there is nothing to count). This already covers past years.
+- **Leap day** (`Feb 29`): the "last"/"next" events land on real Feb 29 dates
+  (with the correct age) and the series recurs on leap years only.
+- **Date already passed this year**: "last" is this year's occurrence (kept), and
+  "next" jumps to next year.
+- **Born this year** (no past occurrence yet): no "last" event is created.
 - **No name** (a contact with a date but no `FN`/`N`): skipped.
 - **Age display off** (`BAIKAL_EXT_BIRTHDAY_SHOW_AGE=false`): a single name-only
-  yearly event, no split.
+  yearly event anchored at the source year, so it still covers past years.
 - **Only the extension's own events are touched** — matched by URI/UID prefix and
   an `X-BAIKAL-EXT-SIG` signature; your own calendar entries are never modified.
 
