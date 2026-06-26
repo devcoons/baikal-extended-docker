@@ -62,7 +62,8 @@ COPY --from=builder --chown=www-data:www-data /build ${BAIKAL_HOME}
 COPY src_ext ${BAIKAL_EXT_HOME}
 RUN ln -sf ${BAIKAL_EXT_HOME}/bin/baikal-birthdays /usr/local/bin/baikal-birthdays \
     && ln -sf ${BAIKAL_EXT_HOME}/bin/birthday-watch /usr/local/bin/birthday-watch \
-    && chmod +x ${BAIKAL_EXT_HOME}/bin/baikal-birthdays ${BAIKAL_EXT_HOME}/bin/birthday-watch
+    && ln -sf ${BAIKAL_EXT_HOME}/bin/baikal-backup /usr/local/bin/baikal-backup \
+    && chmod +x ${BAIKAL_EXT_HOME}/bin/baikal-birthdays ${BAIKAL_EXT_HOME}/bin/birthday-watch ${BAIKAL_EXT_HOME}/bin/baikal-backup
 
 COPY docker/apache.conf /etc/apache2/sites-available/000-default.conf
 COPY docker/docker-entrypoint.sh /docker-entrypoint.sh

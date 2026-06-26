@@ -1,21 +1,53 @@
-# Birthday-sync extension (`src_ext`)
+# Occasion-sync extension (`src_ext`)
 
-A small, self-contained Baïkal extension that turns contact birthdays into
-calendar reminders — kept **outside** the upstream `src/` submodule so Baïkal can
-be upgraded without touching this code.
+A small, self-contained Baïkal extension that turns contact **birthdays** and
+**anniversaries** into calendar reminders, plus a **backup** tool — all kept
+**outside** the upstream `src/` submodule so Baïkal can be upgraded without
+touching this code.
 
 ## What it does
 
 For every user, **if that user has a calendar named `Important Dates`**, the
 extension scans the user's contacts (CardDAV address books) and, for each contact
-with a `BDAY`, maintains an entry in that calendar:
+with a `BDAY` and/or `ANNIVERSARY`, maintains entries in that calendar:
 
-- All-day, **yearly recurring** event on the birthday
-- Title: `"<contact name>'s Birthday"`
-- A reminder (`VALARM`) that fires at **08:00** local time on the day
+- All-day events, with a reminder (`VALARM`) that fires at **08:00** local time.
+- Title: `"<contact name>'s Birthday"` / `"<contact name>'s Anniversary"`.
+
+When the source **year is known**, the contact gets **two objects** so the age
+only appears on the next celebration:
+
+1. **Next occurrence** — a single (non-recurring) event on the upcoming date,
+   with the age/years in the title, e.g. `"Bob's Birthday (41)"`.
+2. **Series** — a yearly recurring event covering every later year, titled with
+   the name only (`"Bob's Birthday"`).
+
+So the upcoming birthday shows the age, while +1/+2/+3 years out show just the
+name. Each daily run rolls this forward: once the date passes, the "next" event
+advances to the following year (new age) and the series shifts to start the year
+after. When the year is **unknown**, a single name-only recurring event is used.
 
 It runs per user: a user's contacts only ever produce events in that same user's
-calendar.
+calendar. Birthdays and anniversaries are tracked independently (separate
+URI/UID prefixes), so toggling one never disturbs the other.
+
+### Title templates & age
+
+Titles are built from templates with two tokens: `{name}` and the count
+(`{age}` for birthdays, `{years}` for anniversaries — interchangeable). When a
+template has **no** count token but `SHOW_AGE`/`SHOW_YEARS` is on and the year is
+known, `(N)` is appended automatically. Examples:
+
+| Template | Year known | Result |
+|----------|-----------|--------|
+| `{name}'s Birthday` (default, show-age on) | yes | `Bob's Birthday (41)` |
+| `{name}'s Birthday` (default) | no | `Bob's Birthday` |
+| `{name} turns {age}` | yes | `Bob turns 41` |
+| `{name}'s Anniversary` (default, show-years on) | yes | `Al's Anniversary (10)` |
+
+The count is computed for the **next** occurrence and only the single "next"
+event carries it; the recurring series stays name-only. The daily cron keeps both
+correct as years roll over.
 
 ## Design
 
@@ -37,11 +69,13 @@ works with the SQLite, MySQL and PostgreSQL backends transparently.
 
 ### Idempotency & safety
 
-- Managed events use a stable URI/UID prefix `baikal-ext-bday-` and carry an
-  `X-BAIKAL-EXT-SIG` signature.
-- Re-runs **create** new birthdays, **update** changed ones, leave unchanged ones
-  alone, and **delete** events whose source contact/`BDAY` disappeared.
-- Events without that prefix (i.e. anything a user created) are never touched.
+- Managed events use stable URI/UID prefixes (`baikal-ext-bday-` for birthdays,
+  `baikal-ext-anniv-` for anniversaries; the single "next" event adds a `-next`
+  suffix) and carry an `X-BAIKAL-EXT-SIG` signature and an `X-BAIKAL-EXT-ROLE`
+  (`next` / `series`).
+- Re-runs **create** new occasions, **update** changed ones, leave unchanged ones
+  alone, and **delete** events whose source contact/field disappeared.
+- Events without those prefixes (i.e. anything a user created) are never touched.
 
 ## Triggering: event-driven, with a periodic backstop
 
@@ -87,12 +121,14 @@ src_ext/
 ├── bin/
 │   ├── baikal-birthdays   # shell wrapper (drops to www-data), on PATH
 │   ├── birthday-watch     # inotify watcher daemon
-│   └── birthdays.php      # CLI entrypoint
+│   ├── birthdays.php      # CLI entrypoint (birthdays + anniversaries)
+│   ├── baikal-backup      # backup wrapper (drops to www-data), on PATH
+│   └── backup-db.php      # backend-aware DB snapshot
 └── lib/
     ├── Config.php         # baikal.yaml + PDO + options
     ├── Logger.php
-    ├── BirthdayParser.php # vCard BDAY → month/day/year
-    ├── BirthdayService.php# scan + reconcile logic
+    ├── BirthdayParser.php # vCard BDAY/ANNIVERSARY → month/day/year
+    ├── BirthdayService.php# scan + reconcile logic (all occasions)
     └── Dav/
         └── ChangeTriggerPlugin.php  # sabre plugin → per-user markers
 ```
@@ -128,7 +164,44 @@ stdout/stderr so they appear in `docker logs`.
 | `BAIKAL_BIRTHDAY_ALARM_TIME` | `08:00` | Reminder time (`HH:MM`, local) |
 | `BAIKAL_BIRTHDAY_CREATE_CALENDAR` | `false` | Auto-create the calendar if missing |
 | `BAIKAL_BIRTHDAY_RUN_ON_START` | `false` | Also run once shortly after container start |
+| `BAIKAL_BIRTHDAY_TITLE_TEMPLATE` | `{name}'s Birthday` | Birthday title template (`{name}`, `{age}`) |
+| `BAIKAL_BIRTHDAY_SHOW_AGE` | `true` | Append `(age)` when the birth year is known |
+| `BAIKAL_ANNIVERSARY_ENABLED` | `true` | Also sync `ANNIVERSARY` / `X-ANNIVERSARY` |
+| `BAIKAL_ANNIVERSARY_TITLE_TEMPLATE` | `{name}'s Anniversary` | Anniversary title template (`{name}`, `{years}`) |
+| `BAIKAL_ANNIVERSARY_SHOW_YEARS` | `true` | Append `(years)` when the year is known |
 | `BAIKAL_PATH_CONFIG` | `/var/www/baikal/config` | Baïkal config directory |
 
 By default, a user without an `Important Dates` calendar is simply skipped (as
 specified). Set `BAIKAL_BIRTHDAY_CREATE_CALENDAR=true` to have it created.
+
+## Backups
+
+`baikal-backup` writes a rotating, timestamped `tar.gz` containing a **consistent
+database snapshot** plus a copy of the config directory:
+
+- **SQLite** — uses `VACUUM INTO`, so the snapshot is consistent even while
+  Baïkal is serving requests (no downtime, no lock contention).
+- **MySQL / PostgreSQL** — uses `mysqldump` / `pg_dump` when those clients are
+  available in the image; otherwise it logs a clear message (dump externally).
+
+Run it manually from inside the container:
+
+```bash
+baikal-backup            # create one archive now, then prune to the keep limit
+```
+
+A cron job is installed from `BAIKAL_BACKUP_CRON` (default `0 3 * * *`, daily at
+03:00). Archives land under `BAIKAL_BACKUP_DIR` (default `<Specific>/backups`,
+i.e. inside the persisted volume).
+
+To restore: extract an archive, replace `baikal.yaml` from `config/`, and restore
+the database (`db.sqlite` → the configured SQLite path, or `dump.sql` via
+`mysql`/`psql`).
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `BAIKAL_BACKUP_ENABLED` | `true` | Install the backup cron job |
+| `BAIKAL_BACKUP_CRON` | `0 3 * * *` | Cron schedule for backups |
+| `BAIKAL_BACKUP_DIR` | `<Specific>/backups` | Where archives are written |
+| `BAIKAL_BACKUP_KEEP` | `7` | How many archives to retain |
+| `BAIKAL_BACKUP_RUN_ON_START` | `false` | Also back up shortly after container start |

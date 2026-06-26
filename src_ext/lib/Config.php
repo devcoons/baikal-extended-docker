@@ -132,10 +132,55 @@ final class Config
         return $pdo;
     }
 
+    /** Raw database section of baikal.yaml (used by the backup tool). */
+    public function rawDatabase(): array
+    {
+        return $this->raw['database'];
+    }
+
+    /** Resolved database backend: 'sqlite', 'mysql' or 'pgsql'. */
+    public function databaseBackend(): string
+    {
+        $db = $this->raw['database'];
+        $legacyMysql = array_key_exists('mysql', $db) && $db['mysql'] === true;
+
+        return $db['backend'] ?? ($legacyMysql ? 'mysql' : 'sqlite');
+    }
+
     /** Display name of the destination calendar that triggers processing. */
     public function calendarName(): string
     {
         return self::envString('BAIKAL_BIRTHDAY_CALENDAR', 'Important Dates');
+    }
+
+    /** Title template for birthday events. Tokens: {name}, {age}. */
+    public function birthdayTitleTemplate(): string
+    {
+        return self::envString('BAIKAL_BIRTHDAY_TITLE_TEMPLATE', "{name}'s Birthday");
+    }
+
+    /** Append the age (when the birth year is known) to birthday titles. */
+    public function birthdayShowAge(): bool
+    {
+        return self::envBool('BAIKAL_BIRTHDAY_SHOW_AGE', true);
+    }
+
+    /** Whether to also sync anniversaries (vCard ANNIVERSARY / X-ANNIVERSARY). */
+    public function anniversaryEnabled(): bool
+    {
+        return self::envBool('BAIKAL_ANNIVERSARY_ENABLED', true);
+    }
+
+    /** Title template for anniversary events. Tokens: {name}, {years}. */
+    public function anniversaryTitleTemplate(): string
+    {
+        return self::envString('BAIKAL_ANNIVERSARY_TITLE_TEMPLATE', "{name}'s Anniversary");
+    }
+
+    /** Append the number of years (when known) to anniversary titles. */
+    public function anniversaryShowYears(): bool
+    {
+        return self::envBool('BAIKAL_ANNIVERSARY_SHOW_YEARS', true);
     }
 
     /**

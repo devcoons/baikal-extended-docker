@@ -37,7 +37,10 @@ SCHEDULE="${BAIKAL_BIRTHDAY_CRON:-30 0 * * *}"
     echo "PATH=/usr/local/bin:/usr/local/sbin:/usr/sbin:/usr/bin:/sbin:/bin"
     for var in BAIKAL_HOME BAIKAL_EXT_HOME BAIKAL_PATH_CONFIG BAIKAL_PATH_SPECIFIC \
                BAIKAL_BIRTHDAY_CALENDAR BAIKAL_BIRTHDAY_ADDRESSBOOK \
-               BAIKAL_BIRTHDAY_ALARM_TIME BAIKAL_BIRTHDAY_CREATE_CALENDAR; do
+               BAIKAL_BIRTHDAY_ALARM_TIME BAIKAL_BIRTHDAY_CREATE_CALENDAR \
+               BAIKAL_BIRTHDAY_TITLE_TEMPLATE BAIKAL_BIRTHDAY_SHOW_AGE \
+               BAIKAL_ANNIVERSARY_ENABLED BAIKAL_ANNIVERSARY_TITLE_TEMPLATE \
+               BAIKAL_ANNIVERSARY_SHOW_YEARS; do
         eval "value=\${$var:-}"
         if [ -n "$value" ]; then
             echo "$var=$value"

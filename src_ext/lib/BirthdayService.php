@@ -11,17 +11,27 @@ use Sabre\VObject\Reader;
 use Sabre\VObject\Component\VCalendar;
 
 /**
- * Scans every user's contacts for birthdays and keeps an all-day, yearly
- * "<name>'s Birthday" reminder in their "Important Dates" calendar in sync.
+ * Scans every user's contacts for "occasions" (birthdays and anniversaries) and
+ * keeps all-day, yearly reminder events in their "Important Dates" calendar in
+ * sync.
  *
- * Only events created by this extension are ever touched: they are tagged with
- * a stable UID prefix and an X-BAIKAL-EXT-SIG signature, so user-created events
- * are never modified or deleted.
+ * For each contact with a birthday a `"<name>'s Birthday"` event is maintained;
+ * with an anniversary, a `"<name>'s Anniversary"` event. When the source year is
+ * known the age / number of years can be shown in the title (e.g.
+ * "Bob's Birthday (41)").
+ *
+ * Only events created by this extension are ever touched: each is tagged with a
+ * per-occasion URI/UID prefix and an X-BAIKAL-EXT-SIG signature, so user-created
+ * events are never modified or deleted. Different occasion types reconcile
+ * independently via their own prefix.
  */
 final class BirthdayService
 {
-    /** URI/UID prefix marking calendar objects owned by this extension. */
+    /** URI/UID prefix for birthday objects (kept for backwards compatibility). */
     public const MANAGED_PREFIX = 'baikal-ext-bday-';
+
+    /** URI/UID prefix for anniversary objects. */
+    public const ANNIVERSARY_PREFIX = 'baikal-ext-anniv-';
 
     private const UID_DOMAIN = '@baikal-ext';
 
@@ -29,16 +39,20 @@ final class BirthdayService
     private CardBackend $cards;
     private CalendarBackend $calendars;
 
+    /** @var list<array{key:string,props:list<string>,prefix:string,template:string,showCount:bool,foundKey:string}> */
+    private array $occasions;
+
     /** @var array<string,int> */
     private array $totals = [
-        'users_processed' => 0,
-        'users_skipped'   => 0,
-        'created'         => 0,
-        'updated'         => 0,
-        'unchanged'      => 0,
-        'deleted'        => 0,
-        'contacts_seen'  => 0,
-        'birthdays_found' => 0,
+        'users_processed'    => 0,
+        'users_skipped'      => 0,
+        'created'            => 0,
+        'updated'            => 0,
+        'unchanged'          => 0,
+        'deleted'            => 0,
+        'contacts_seen'      => 0,
+        'birthdays_found'    => 0,
+        'anniversaries_found' => 0,
     ];
 
     public function __construct(
@@ -50,6 +64,26 @@ final class BirthdayService
         $this->principals = new PrincipalBackend($pdo);
         $this->cards = new CardBackend($pdo);
         $this->calendars = new CalendarBackend($pdo);
+
+        $this->occasions = [[
+            'key'      => 'birthday',
+            'props'    => ['BDAY'],
+            'prefix'   => self::MANAGED_PREFIX,
+            'template' => $config->birthdayTitleTemplate(),
+            'showCount' => $config->birthdayShowAge(),
+            'foundKey' => 'birthdays_found',
+        ]];
+
+        if ($config->anniversaryEnabled()) {
+            $this->occasions[] = [
+                'key'      => 'anniversary',
+                'props'    => ['ANNIVERSARY', 'X-ANNIVERSARY'],
+                'prefix'   => self::ANNIVERSARY_PREFIX,
+                'template' => $config->anniversaryTitleTemplate(),
+                'showCount' => $config->anniversaryShowYears(),
+                'foundKey' => 'anniversaries_found',
+            ];
+        }
     }
 
     /**
@@ -59,8 +93,10 @@ final class BirthdayService
     public function run(?string $onlyUser = null): array
     {
         $calendarName = $this->config->calendarName();
+        $occasionKeys = array_map(static fn ($o) => $o['key'], $this->occasions);
         $this->logger->info(sprintf(
-            'Starting birthday sync (destination calendar: "%s"%s)%s',
+            'Starting sync (occasions: %s; calendar: "%s"%s)%s',
+            implode(', ', $occasionKeys),
             $calendarName,
             $this->config->addressBookFilter() !== '' ? ', address book: "' . $this->config->addressBookFilter() . '"' : '',
             $this->dryRun ? ' [DRY-RUN]' : ''
@@ -82,10 +118,11 @@ final class BirthdayService
         }
 
         $this->logger->info(sprintf(
-            'Done. users=%d skipped=%d | birthdays=%d | created=%d updated=%d unchanged=%d deleted=%d',
+            'Done. users=%d skipped=%d | birthdays=%d anniversaries=%d | created=%d updated=%d unchanged=%d deleted=%d',
             $this->totals['users_processed'],
             $this->totals['users_skipped'],
             $this->totals['birthdays_found'],
+            $this->totals['anniversaries_found'],
             $this->totals['created'],
             $this->totals['updated'],
             $this->totals['unchanged'],
@@ -114,22 +151,31 @@ final class BirthdayService
 
         $calendarId = $targetCalendar['id'];
 
-        // 1. Collect desired birthday events from the user's contacts.
-        $desired = $this->collectDesiredEvents($principalUri, $username);
+        // Read the user's contacts once, then derive each occasion type from them.
+        $contacts = $this->loadContacts($principalUri);
 
-        // 2. Reconcile against events this extension previously created.
-        $this->reconcile($calendarId, $desired, $username);
+        foreach ($this->occasions as $occasion) {
+            $desired = [];
+            foreach ($contacts as $contact) {
+                foreach ($this->buildEvents($occasion, $contact, $username) as $event) {
+                    $desired[$event['uri']] = $event;
+                }
+            }
+            $this->reconcile($occasion['prefix'], $calendarId, $desired, $username);
+        }
 
         $this->totals['users_processed']++;
     }
 
     /**
-     * @return array<string,array{summary:string,signature:string,data:string}>
+     * Loads and parses all of the user's contacts once.
+     *
+     * @return list<array{vcard:\Sabre\VObject\Component\VCard,name:string,sourceKey:string}>
      */
-    private function collectDesiredEvents(string $principalUri, string $username): array
+    private function loadContacts(string $principalUri): array
     {
         $filter = $this->config->addressBookFilter();
-        $desired = [];
+        $contacts = [];
 
         foreach ($this->cards->getAddressBooksForUser($principalUri) as $book) {
             if ($filter !== '' && ($book['{DAV:}displayname'] ?? '') !== $filter) {
@@ -145,95 +191,232 @@ final class BirthdayService
             foreach (array_chunk($uris, 100) as $chunk) {
                 foreach ($this->cards->getMultipleCards($bookId, $chunk) as $card) {
                     $this->totals['contacts_seen']++;
-                    $event = $this->buildEventFromCard($card, (string) $bookId, $username);
-                    if ($event !== null) {
-                        $desired[$event['uri']] = $event;
+
+                    $carddata = $card['carddata'] ?? '';
+                    if ($carddata === '') {
+                        continue;
                     }
+
+                    try {
+                        $vcard = Reader::read($carddata);
+                    } catch (\Throwable $e) {
+                        $this->logger->warning(sprintf('Unreadable vCard %s (%s)', $card['uri'] ?? '?', $e->getMessage()));
+                        continue;
+                    }
+
+                    $sourceKey = isset($vcard->UID) && (string) $vcard->UID !== ''
+                        ? (string) $vcard->UID
+                        : $bookId . '/' . ($card['uri'] ?? '');
+
+                    $contacts[] = [
+                        'vcard'     => $vcard,
+                        'name'      => $this->extractName($vcard),
+                        'sourceKey' => $sourceKey,
+                    ];
                 }
             }
         }
 
-        return $desired;
+        return $contacts;
     }
 
     /**
-     * @param array{carddata?:string,uri?:string} $card
-     * @return array{uri:string,summary:string,signature:string,data:string}|null
+     * Builds the desired calendar object(s) for one contact + occasion.
+     *
+     * When the source year is known and the count should be shown, this returns
+     * two objects:
+     *   - a single (non-recurring) event for the next upcoming occurrence, with
+     *     the age/years in the title (e.g. "Bob's Birthday (41)");
+     *   - a recurring yearly series for every later year, titled with the name
+     *     only ("Bob's Birthday").
+     * Otherwise it returns a single recurring (name-only) event, as before.
+     *
+     * @param array{key:string,props:list<string>,prefix:string,template:string,showCount:bool,foundKey:string} $occasion
+     * @param array{vcard:\Sabre\VObject\Component\VCard,name:string,sourceKey:string} $contact
+     * @return list<array{uri:string,summary:string,signature:string,data:string}>
      */
-    private function buildEventFromCard(array $card, string $bookId, string $username): ?array
+    private function buildEvents(array $occasion, array $contact, string $username): array
     {
-        $carddata = $card['carddata'] ?? '';
-        if ($carddata === '') {
-            return null;
+        $vcard = $contact['vcard'];
+
+        $rawValue = null;
+        foreach ($occasion['props'] as $prop) {
+            if (isset($vcard->{$prop}) && trim((string) $vcard->{$prop}) !== '') {
+                $rawValue = (string) $vcard->{$prop};
+                break;
+            }
+        }
+        if ($rawValue === null) {
+            return [];
         }
 
-        try {
-            $vcard = Reader::read($carddata);
-        } catch (\Throwable $e) {
-            $this->logger->warning(sprintf('User "%s": unreadable vCard %s (%s)', $username, $card['uri'] ?? '?', $e->getMessage()));
+        if ($contact['name'] === '') {
+            $this->logger->debug(sprintf('User "%s": contact with %s but no name, skipping (%s).', $username, $occasion['key'], $contact['sourceKey']));
 
-            return null;
+            return [];
         }
 
-        if (!isset($vcard->BDAY)) {
-            return null;
-        }
-
-        $name = $this->extractName($vcard);
-        if ($name === '') {
-            $this->logger->debug(sprintf('User "%s": contact with birthday but no name, skipping (%s).', $username, $card['uri'] ?? '?'));
-
-            return null;
-        }
-
-        $date = BirthdayParser::parse((string) $vcard->BDAY);
+        $date = BirthdayParser::parse($rawValue);
         if ($date === null) {
-            $this->logger->debug(sprintf('User "%s": unparseable BDAY "%s" for %s', $username, (string) $vcard->BDAY, $name));
+            $this->logger->debug(sprintf('User "%s": unparseable %s "%s" for %s', $username, $occasion['key'], $rawValue, $contact['name']));
 
-            return null;
+            return [];
         }
 
-        $this->totals['birthdays_found']++;
+        $this->totals[$occasion['foundKey']]++;
 
-        $sourceKey = isset($vcard->UID) && (string) $vcard->UID !== ''
-            ? (string) $vcard->UID
-            : $bookId . '/' . ($card['uri'] ?? '');
+        $hash = sha1($contact['sourceKey']);
+        $baseUri = $occasion['prefix'] . $hash . '.ics';
+        $baseUid = $occasion['prefix'] . $hash . self::UID_DOMAIN;
+        $plainTitle = $this->renderTitle($occasion['template'], $contact['name'], null, false);
 
-        $uri = self::MANAGED_PREFIX . sha1($sourceKey) . '.ics';
-        $uid = self::MANAGED_PREFIX . sha1($sourceKey) . self::UID_DOMAIN;
-        $summary = $name . "'s Birthday";
+        // Determine the age/years at the next occurrence (null if not computable).
+        $today = new \DateTimeImmutable('today', new \DateTimeZone($this->config->timezone()));
+        $upcoming = $this->nextOccurrenceDate($date['month'], $date['day'], $today);
+        $count = $date['year'] !== null ? (int) $upcoming->format('Y') - $date['year'] : null;
+        if ($count !== null && $count < 0) {
+            $count = null; // future-dated year: nothing meaningful to show
+        }
 
+        // No age to show -> a single recurring (name-only) event, like before.
+        if (!$occasion['showCount'] || $count === null) {
+            $start = $this->seriesAnchor($date);
+
+            return [$this->makeEvent(
+                $baseUri,
+                $baseUid,
+                $plainTitle,
+                $start,
+                true,
+                'series',
+                $contact['sourceKey']
+            )];
+        }
+
+        // Age known and wanted: split into "next" (with age) + "series" (plain).
+        $nextTitle = $this->renderTitle($occasion['template'], $contact['name'], $count, true);
+        $seriesStart = $this->nextOccurrenceDate($date['month'], $date['day'], $upcoming->modify('+1 day'));
+
+        $events = [];
+
+        $events[] = $this->makeEvent(
+            $occasion['prefix'] . $hash . '-next.ics',
+            $occasion['prefix'] . $hash . '-next' . self::UID_DOMAIN,
+            $nextTitle,
+            $upcoming,
+            false,
+            'next',
+            $contact['sourceKey']
+        );
+
+        $events[] = $this->makeEvent(
+            $baseUri,
+            $baseUid,
+            $plainTitle,
+            $seriesStart,
+            true,
+            'series',
+            $contact['sourceKey']
+        );
+
+        return $events;
+    }
+
+    /**
+     * Assembles one event array (uri/summary/signature/data).
+     *
+     * @return array{uri:string,summary:string,signature:string,data:string}
+     */
+    private function makeEvent(string $uri, string $uid, string $summary, \DateTimeImmutable $start, bool $recurring, string $role, string $sourceKey): array
+    {
         $signature = sha1(implode('|', [
+            $role,
             $summary,
-            sprintf('%02d-%02d', $date['month'], $date['day']),
-            $date['year'] ?? '----',
+            $start->format('Ymd'),
+            $recurring ? 'yearly' : 'once',
             $this->config->alarmTime(),
         ]));
-
-        $data = $this->renderCalendar($uid, $summary, $date, $signature, $sourceKey);
 
         return [
             'uri'       => $uri,
             'summary'   => $summary,
             'signature' => $signature,
-            'data'      => $data,
+            'data'      => $this->renderCalendar($uid, $summary, $start, $recurring, $role, $signature, $sourceKey),
         ];
     }
 
     /**
+     * Next calendar date (>= $from) matching month/day, skipping years where the
+     * date is invalid (e.g. Feb 29 in non-leap years).
+     */
+    private function nextOccurrenceDate(int $month, int $day, \DateTimeImmutable $from): \DateTimeImmutable
+    {
+        $startYear = (int) $from->format('Y');
+        for ($i = 0; $i <= 8; $i++) {
+            $year = $startYear + $i;
+            if (!checkdate($month, $day, $year)) {
+                continue;
+            }
+            $candidate = \DateTimeImmutable::createFromFormat(
+                '!Ymd',
+                sprintf('%04d%02d%02d', $year, $month, $day),
+                $from->getTimezone()
+            );
+            if ($candidate >= $from) {
+                return $candidate;
+            }
+        }
+
+        return $from;
+    }
+
+    /**
+     * Leap-safe anchor for a name-only recurring series when the year is unknown.
+     *
      * @param array{month:int,day:int,year:int|null} $date
      */
-    private function renderCalendar(string $uid, string $summary, array $date, string $signature, string $sourceKey): string
+    private function seriesAnchor(array $date): \DateTimeImmutable
     {
-        // No-year birthdays use a leap-safe base year so Feb 29 stays valid.
         $year = $date['year'] ?? 2000;
         if (!checkdate($date['month'], $date['day'], $year)) {
             $year = 2000;
         }
-        $start = \DateTimeImmutable::createFromFormat('!Ymd', sprintf('%04d%02d%02d', $year, $date['month'], $date['day']));
 
+        return \DateTimeImmutable::createFromFormat(
+            '!Ymd',
+            sprintf('%04d%02d%02d', $year, $date['month'], $date['day']),
+            new \DateTimeZone($this->config->timezone())
+        );
+    }
+
+    /**
+     * Builds the event title from a template.
+     *
+     * Tokens: {name}, and {age}/{years}/{count} (interchangeable). When the
+     * template has no count token but showCount is on and a count is known, it is
+     * appended as " (N)".
+     */
+    private function renderTitle(string $template, string $name, ?int $count, bool $showCount): string
+    {
+        $title = str_replace('{name}', $name, $template);
+
+        if (preg_match('/\{(age|years|count)\}/', $template) === 1) {
+            $title = preg_replace('/\{(age|years|count)\}/', $count !== null ? (string) $count : '', $title);
+        } elseif ($showCount && $count !== null) {
+            $title .= ' (' . $count . ')';
+        }
+
+        // Tidy up after an empty count token: drop "()" and collapse whitespace.
+        $title = preg_replace('/\(\s*\)/', '', (string) $title);
+        $title = preg_replace('/\s{2,}/', ' ', (string) $title);
+
+        return trim((string) $title);
+    }
+
+    private function renderCalendar(string $uid, string $summary, \DateTimeImmutable $start, bool $recurring, string $role, string $signature, string $sourceKey): string
+    {
         $vcal = new VCalendar();
-        $vcal->PRODID = '-//baikal-ext//birthday-sync//EN';
+        $vcal->PRODID = '-//baikal-ext//occasion-sync//EN';
 
         $event = $vcal->add('VEVENT');
         $event->UID = $uid;
@@ -245,10 +428,13 @@ final class BirthdayService
         $dtend = $event->add('DTEND', $start->modify('+1 day')->format('Ymd'));
         $dtend['VALUE'] = 'DATE';
 
-        $event->add('RRULE', ['FREQ' => 'YEARLY']);
+        if ($recurring) {
+            $event->add('RRULE', ['FREQ' => 'YEARLY']);
+        }
         $event->add('SUMMARY', $summary);
         $event->add('TRANSP', 'TRANSPARENT');
         $event->add('X-BAIKAL-EXT-SIG', $signature);
+        $event->add('X-BAIKAL-EXT-ROLE', $role);
         $event->add('X-BAIKAL-EXT-SOURCE', $sourceKey);
 
         $alarm = $event->add('VALARM');
@@ -280,9 +466,9 @@ final class BirthdayService
     /**
      * @param array<string,array{uri:string,summary:string,signature:string,data:string}> $desired
      */
-    private function reconcile(mixed $calendarId, array $desired, string $username): void
+    private function reconcile(string $prefix, mixed $calendarId, array $desired, string $username): void
     {
-        $existing = $this->existingManagedSignatures($calendarId);
+        $existing = $this->existingManagedSignatures($prefix, $calendarId);
 
         foreach ($desired as $uri => $event) {
             if (!array_key_exists($uri, $existing)) {
@@ -302,7 +488,7 @@ final class BirthdayService
             }
         }
 
-        // Remove birthday events whose source contact/BDAY no longer exists.
+        // Remove managed events whose source contact/field no longer exists.
         foreach (array_keys($existing) as $uri) {
             if (!array_key_exists($uri, $desired)) {
                 $this->logger->debug(sprintf('User "%s": - %s', $username, $uri));
@@ -317,12 +503,12 @@ final class BirthdayService
     /**
      * @return array<string,string> map of managed object uri => stored signature
      */
-    private function existingManagedSignatures(mixed $calendarId): array
+    private function existingManagedSignatures(string $prefix, mixed $calendarId): array
     {
         $managedUris = [];
         foreach ($this->calendars->getCalendarObjects($calendarId) as $object) {
             $uri = $object['uri'] ?? '';
-            if (str_starts_with($uri, self::MANAGED_PREFIX)) {
+            if (str_starts_with($uri, $prefix)) {
                 $managedUris[] = $uri;
             }
         }
@@ -377,7 +563,7 @@ final class BirthdayService
         $this->logger->info(sprintf('Creating calendar "%s" for %s', $calendarName, $principalUri));
         $this->calendars->createCalendar($principalUri, $uri, [
             '{DAV:}displayname' => $calendarName,
-            '{urn:ietf:params:xml:ns:caldav}calendar-description' => 'Auto-managed birthdays',
+            '{urn:ietf:params:xml:ns:caldav}calendar-description' => 'Auto-managed birthdays and anniversaries',
         ]);
 
         return $this->findCalendar($principalUri, $calendarName);

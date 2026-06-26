@@ -1,0 +1,54 @@
+#!/bin/sh
+# Create a rotating backup of the Baïkal database + config.
+#
+# Produces a timestamped tar.gz under the backup directory containing:
+#   - a consistent database snapshot (db.sqlite / dump.sql, backend-aware)
+#   - a copy of the config directory (baikal.yaml, ...)
+#
+# Runs as the web-server user so archives stay owned consistently. Controlled by:
+#   BAIKAL_BACKUP_DIR    output directory (default: <Specific>/backups)
+#   BAIKAL_BACKUP_KEEP   how many archives to retain (default: 7)
+set -eu
+
+RUN_AS="${BAIKAL_EXT_USER:-www-data}"
+if [ "$(id -u)" = "0" ] && [ "$RUN_AS" != "root" ] && command -v runuser >/dev/null 2>&1; then
+    exec runuser -u "$RUN_AS" -- "$0" "$@"
+fi
+
+EXT_HOME="${BAIKAL_EXT_HOME:-/opt/baikal-ext}"
+SPECIFIC="${BAIKAL_PATH_SPECIFIC:-/var/www/baikal/Specific}"
+CONFIG="${BAIKAL_PATH_CONFIG:-/var/www/baikal/config}"
+BACKUP_DIR="${BAIKAL_BACKUP_DIR:-$SPECIFIC/backups}"
+KEEP="${BAIKAL_BACKUP_KEEP:-7}"
+
+log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] baikal-backup: $*"; }
+
+ts=$(date +%Y%m%d-%H%M%S)
+mkdir -p "$BACKUP_DIR"
+
+staging=$(mktemp -d)
+trap 'rm -rf "$staging"' EXIT
+
+# 1. Database snapshot (backend-aware).
+if ! php "$EXT_HOME/bin/backup-db.php" "$staging"; then
+    log "database snapshot failed; aborting"
+    exit 1
+fi
+
+# 2. Configuration.
+mkdir -p "$staging/config"
+cp -a "$CONFIG/." "$staging/config/" 2>/dev/null || true
+
+# 3. Archive.
+out="$BACKUP_DIR/baikal-backup-$ts.tar.gz"
+tar czf "$out" -C "$staging" .
+log "wrote $out ($(du -h "$out" | cut -f1))"
+
+# 4. Rotation: keep the newest $KEEP archives.
+count=$(ls -1t "$BACKUP_DIR"/baikal-backup-*.tar.gz 2>/dev/null | wc -l)
+if [ "$count" -gt "$KEEP" ]; then
+    ls -1t "$BACKUP_DIR"/baikal-backup-*.tar.gz | tail -n +"$((KEEP + 1))" | while read -r old; do
+        rm -f "$old"
+        log "rotated out $(basename "$old")"
+    done
+fi
